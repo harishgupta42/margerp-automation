@@ -1,0 +1,34 @@
+{
+  "marg": {
+    "db_path": "D:/MARGERP/Data",
+    "company_name": "Your Company Name",
+    "bill_export_folder": "D:/MARGERP/EXPORT/BILLS/",
+    "outstanding_export_folder": "D:/MARGERP/EXPORT/OUTSTANDING/",
+    "hook_data_file": "D:/MARGERP/HOOK_DATA/bill_hook.txt",
+    "party_mobile_export": "D:/MARGERP/HOOK_DATA/party_mobile.csv",
+    "send_yes_file": "D:/MARGERP/HOOK_DATA/send_yes.txt",
+    "send_mode": "yes_only",
+    "hook_delay_seconds": 0,
+    "pdf_wait_seconds": 3
+  },
+  "whatsapp": {
+    "session_path": "./nodejs/wa_session",
+    "sender_jid": "91XXXXXXXXXX@s.whatsapp.net"
+  },
+  "nodejs_server": {
+    "host": "127.0.0.1",
+    "port": 3030,
+    "api_key": "change-this-to-a-long-random-secret"
+  },
+  "scheduler": {
+    "outstanding_reminder_time": "09:00",
+    "reorder_reminder_time": "10:00",
+    "outstanding_due_days": 30,
+    "reorder_check_days": 45
+  },
+  "messages": {
+    "bill_message": "Dear {party_name},\n\nThank you for your purchase!\n\nBill No: *{bill_no}*\nDate: {bill_date}\nAmount: *₹{amount}*\n\nPlease find your invoice attached.\n\n_{company_name}_",
+    "outstanding_message": "Dear {party_name},\n\nThis is a gentle reminder about your outstanding payment.\n\nBill No: {bill_no}\nBill Date: {bill_date}\nAmount Due: *₹{amount}*\nDue Since: {due_days} days\n\nKindly arrange the payment at the earliest.\n\n_{company_name}_",
+    "reorder_message": "Dear {party_name},\n\nIt has been *{days_since} days* since your last order.\nTime to restock? We would love to serve you again!\n\n_{company_name}_"
+  }
+}

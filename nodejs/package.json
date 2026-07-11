@@ -1,0 +1,16 @@
+{
+  "name": "marg-whatsapp-gateway",
+  "version": "1.0.0",
+  "description": "WhatsApp gateway for Marg ERP using Baileys",
+  "main": "whatsapp_server.js",
+  "scripts": {
+    "start": "node whatsapp_server.js",
+    "dev": "node --watch whatsapp_server.js"
+  },
+  "dependencies": {
+    "@whiskeysockets/baileys": "^6.7.18",
+    "express": "^4.18.2",
+    "qrcode-terminal": "^0.12.0",
+    "pino": "^9.4.0"
+  }
+}

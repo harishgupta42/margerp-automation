@@ -1,0 +1,143 @@
+================================================================================
+MARG ERP -> WhatsApp — Hook setup (working)
+================================================================================
+
+Paste these in Marg: Development -> Self Programming -> Development Hook
+
+================================================================================
+STEP A — Control Room (one time) — auto-fill mobile from ledger on bill
+================================================================================
+Masters -> Marg Setups -> Control Room -> Search in All
+Search: Mobile Number -> Accept
+Set "Bill on Ledger Code/Name/DLNo/Area/Station/MR/moBile/..." = B
+Esc twice -> Yes (save)
+
+After this, open a NEW sale bill, enter party — mobile row should fill from ledger.
+
+================================================================================
+STEP B — HEADER END (capture mobile when party selected)
+================================================================================
+Paste in: Development Hook for HEADER END -> Commands
+
+PUBLIC marg_wa_phone
+marg_wa_phone=""
+IF TYPE("invopho")="C"
+  marg_wa_phone=ALLTRIM(invopho)
+ENDIF
+=strtofile(marg_wa_phone,"D:/MARGERP/HOOK_DATA/phone.txt")
+retu .t.
+
+Ctrl+W -> Save -> Exit
+
+================================================================================
+STEP C — FOOTER END (bill data + professional WhatsApp prompt)
+================================================================================
+Paste in: Development Hook for FOOTER END -> Commands
+
+myv_bill=trim(invo)
+myv_code=trim(pcod)
+myv_name=trim(chemi_name)
+myv_amt=ltrim(str(finalbilval))
+myv_date=trim(repdat1)
+myv_phone=""
+IF TYPE("marg_wa_phone")="C"
+  myv_phone=ALLTRIM(marg_wa_phone)
+ENDIF
+IF LEN(ALLTRIM(myv_phone))<10 AND TYPE("invopho")="C"
+  myv_phone=ALLTRIM(invopho)
+ENDIF
+marg_wa_send="N"
+
+* --- Professional popup (boxed window, easy to see) ---
+DEFINE WINDOW wa_popup FROM 8,8 TO 19,72 TITLE "  WhatsApp — Send Invoice  " DOUBLE SHADOW
+ACTIVATE WINDOW wa_popup
+@ 1,3 SAY "Bill No   : "+ALLTRIM(myv_bill)
+@ 2,3 SAY "Party     : "+LEFT(ALLTRIM(myv_name),38)
+@ 3,3 SAY "Amount    : Rs "+ALLTRIM(myv_amt)
+@ 4,3 SAY "Date      : "+ALLTRIM(myv_date)
+IF LEN(ALLTRIM(myv_phone))>=10
+  @ 5,3 SAY "Mobile    : "+ALLTRIM(myv_phone)
+ENDIF
+@ 7,3 SAY REPLICATE("-",54)
+@ 8,3 SAY "Send this bill to customer on WhatsApp?"
+@ 9,3 SAY "  [ Y ]  Yes, send now          [ N ]  No, skip"
+@ 10,3 SAY "Type Y or N and press Enter :"
+@ 10,33 GET marg_wa_send PICT "!" VALID UPPER(marg_wa_send)$"YN"
+READ
+DEACTIVATE WINDOW wa_popup
+RELEASE WINDOW wa_popup
+
+IF UPPER(ALLTRIM(marg_wa_send))="Y"
+  marg_wa_send="Y"
+ELSE
+  marg_wa_send="N"
+ENDIF
+=strtofile(marg_wa_send,"D:/MARGERP/HOOK_DATA/send_yes.txt")
+marg_whatsapp_line=trim(myv_bill)+"|"+trim(myv_code)+"|"+trim(myv_name)+"|"+trim(myv_amt)+"|"+trim(myv_phone)+"|"+trim(myv_date)+"|"+marg_wa_send
+=strtofile(marg_whatsapp_line,"D:/MARGERP/HOOK_DATA/bill_hook.txt")
+run /n d:/marg-whatsapp-automation/trigger_bill.bat
+retu .t.
+
+--- Plan B: if DEFINE WINDOW gives syntax error, use MESSAGEBOX instead ---
+Replace the DEFINE WINDOW block (from DEFINE through RELEASE) with:
+
+lc_msg="Bill No: "+ALLTRIM(myv_bill)+CHR(13)+CHR(10)
+lc_msg=lc_msg+"Party  : "+ALLTRIM(myv_name)+CHR(13)+CHR(10)
+lc_msg=lc_msg+"Amount : Rs "+ALLTRIM(myv_amt)+CHR(13)+CHR(10)
+lc_msg=lc_msg+CHR(13)+CHR(10)+"Send invoice PDF on WhatsApp?"
+ln_choice=MESSAGEBOX(lc_msg,36,"WhatsApp Invoice")
+IF ln_choice=6
+  marg_wa_send="Y"
+ELSE
+  marg_wa_send="N"
+ENDIF
+
+(36 = Yes/No buttons with question icon. Click Yes = send, No = skip.)
+
+--- Plan C: if both fail, use simple boxed prompt on main screen ---
+@ 8,5 TO 15,75 DOUBLE
+@ 9,8 SAY "  WHATSAPP — SEND INVOICE"
+@ 10,8 SAY "  Bill: "+ALLTRIM(myv_bill)+"    Amount: Rs "+ALLTRIM(myv_amt)
+@ 11,8 SAY "  Party: "+LEFT(ALLTRIM(myv_name),40)
+@ 12,8 SAY "  Send to customer?  (Y = Yes, N = No)"
+@ 13,8 GET marg_wa_send PICT "!" VALID UPPER(marg_wa_send)$"YN"
+READ
+
+================================================================================
+CONFIG (D:\marg-whatsapp-automation\config\config.json)
+================================================================================
+  "send_mode": "yes_only"   — send only when you answer Y on hook prompt
+  "send_mode": "always"    — send on every bill save (remove @ SAY GET block)
+
+To skip Y/N prompt: remove @ SAY GET READ lines in Step C and set send_mode always.
+
+================================================================================
+VARIABLE MAP (confirmed)
+================================================================================
+Bill no      INVO                 e.g. VMA0297
+Party code   PCOD                 e.g. WAD
+Party name   CHEMI_NAME
+G Total      FINALBILVAL
+Date         REPDAT1
+Mobile       invopho (after Step A) or phone.txt from HEADER hook
+
+DO NOT USE: order.mobile, order.mob, vou_position as bill no, an (empty)
+
+================================================================================
+PHONE FALLBACK — party_mobile.csv export (if invopho still blank)
+================================================================================
+Reports -> Management Report -> Utilities -> Copy
+-> Export My Database Mobile No
+Save as: D:/MARGERP/HOOK_DATA/party_mobile.csv
+
+Python looks up mobile by party code (PCOD). Re-export when party mobiles change.
+
+================================================================================
+TEST
+================================================================================
+1. Start WhatsApp server: START_SERVER.bat
+2. Save bill -> a popup window appears with bill details
+3. Type Y and Enter to send, or N to skip
+4. bill_hook.txt should end with |Y and logs\hooks.log should show SUCCESS
+
+================================================================================
