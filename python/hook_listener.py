@@ -157,15 +157,28 @@ def read_hook_data():
             logging.info(f"Phone from Marg HEADER hook (phone.txt): {saved}")
 
     phone = str(data.get("phone", "")).strip()
-    if (not phone or len(phone) < 10) and data.get("party_code"):
+    if (not phone or len(phone) < 10) and (data.get("party_code") or data.get("party_name")):
         try:
             from marg_db import get_party_phone
-            info = get_party_phone(data["party_code"])
+            info = get_party_phone(data.get("party_code"), data.get("party_name"))
             if info and info.get("phone"):
                 data["phone"] = info["phone"]
-                logging.info(f"Phone from Marg mobile export ({data['party_code']}): {info['phone']}")
+                logging.info(
+                    f"Phone from ledger export "
+                    f"({data.get('party_code') or data.get('party_name')}): {info['phone']}"
+                )
         except Exception as e:
-            logging.debug(f"Party mobile export lookup skipped: {e}")
+            logging.warning(f"Party mobile lookup failed for {data.get('party_code')}: {e}")
+
+    phone = str(data.get("phone", "")).strip()
+    if not phone or len(phone) < 10:
+        export_path = Path(load_config()["marg"].get(
+            "party_mobile_export", "D:/MARGERP/HOOK_DATA/party_mobile.csv"))
+        logging.warning(
+            f"No phone for party {data.get('party_code')} / {data.get('party_name')} — "
+            f"party has no number in ledger PHONE1..PHONE4, or export mobiles "
+            f"with code+name to {export_path}"
+        )
 
     return data
 
@@ -185,7 +198,7 @@ def process_new_bill(bill_data):
     party_name = str(bill_data.get("party_name", "") or "Customer")
 
     if not phone or len(phone) < 12:
-        logging.warning(f"No phone in Marg hook — enable mobile on bill + HEADER END invopho hook")
+        logging.warning("No phone in Marg hook — add the party's mobile in the ledger master")
         return False
 
     if not is_server_online():
@@ -203,6 +216,7 @@ def process_new_bill(bill_data):
                 "bill_no":    bill_no,
                 "bill_date":  bill_date,
                 "party_name": party_name,
+                "party_code": party_code,
                 "items":      bill_data.get("items", []),
                 "total":      amount,
                 "gst_amount": bill_data.get("gst_amount", "0"),

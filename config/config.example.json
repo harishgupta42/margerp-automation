@@ -9,7 +9,10 @@
     "send_yes_file": "D:/MARGERP/HOOK_DATA/send_yes.txt",
     "send_mode": "yes_only",
     "hook_delay_seconds": 0,
-    "pdf_wait_seconds": 3
+    "pdf_wait_seconds": 10,
+    "pdf_search_folders": [
+      "D:/MARGERP/EXPORT/BILLS/"
+    ]
   },
   "whatsapp": {
     "session_path": "./nodejs/wa_session",

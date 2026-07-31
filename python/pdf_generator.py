@@ -1,14 +1,11 @@
 """
-pdf_generator.py
-────────────────
-Generates a bill PDF from Marg bill data.
-Uses fpdf2 — pip install fpdf2
-For actual Marg bills: reads from Marg's own exported PDF folder.
+Search for Marg bill PDF and generate a fallback invoice when Marg has not exported one.
 """
 
-import os, base64, json
+import json
+import time
+import logging
 from pathlib import Path
-from datetime import datetime
 
 try:
     from fpdf import FPDF
@@ -18,108 +15,194 @@ except ImportError:
 
 CONFIG_PATH = Path(__file__).parent.parent / "config" / "config.json"
 
+
 def load_config():
     with open(CONFIG_PATH, "r", encoding="utf-8") as f:
         return json.load(f)
 
-CFG = load_config()
+
+def _pdf_search_folders(cfg):
+    marg = cfg.get("marg", {})
+    folders = []
+    for key in ("bill_export_folder", "pdf_export_folder"):
+        p = marg.get(key)
+        if p:
+            folders.append(Path(p))
+    for extra in marg.get("pdf_search_folders", []):
+        if extra:
+            folders.append(Path(extra))
+    # de-dupe while preserving order
+    seen, out = set(), []
+    for folder in folders:
+        s = str(folder).lower()
+        if s not in seen:
+            seen.add(s)
+            out.append(folder)
+    return out
+
+
+def _bill_name_variants(bill_no):
+    bill_no = str(bill_no or "").strip()
+    if not bill_no:
+        return []
+    variants = {bill_no, bill_no.replace("/", "-"), bill_no.replace("\\", "-")}
+    upper = bill_no.upper()
+    variants.add(upper)
+    variants.add(upper.replace("/", "-"))
+    return [v for v in variants if v]
+
+
+def _candidate_paths(folder, bill_no):
+    folder = Path(folder)
+    names = _bill_name_variants(bill_no)
+    candidates = []
+    for name in names:
+        candidates.extend([
+            folder / f"{name}.pdf",
+            folder / f"INV{name}.pdf",
+            folder / f"{name}.PDF",
+        ])
+    # glob partial match inside folder
+    if folder.is_dir():
+        for name in names:
+            for hit in folder.glob(f"*{name}*.pdf"):
+                candidates.append(hit)
+            for hit in folder.glob(f"*{name}*.PDF"):
+                candidates.append(hit)
+    return candidates
+
 
 def get_marg_pdf_path(bill_no, wait_sec=0):
     """
-    Marg can auto-save PDFs to a folder when printing.
-    wait_sec: retry for PDF written slightly after bill save.
+    Find Marg-exported PDF for bill_no.
+    Retries until wait_sec elapses (Marg may write PDF just after save).
     """
-    import time
-    export_folder = Path(CFG["marg"]["bill_export_folder"])
-    candidates = [
-        export_folder / f"{bill_no}.pdf",
-        export_folder / f"{bill_no.replace('/', '-')}.pdf",
-        export_folder / f"INV{bill_no}.pdf",
-    ]
+    cfg = load_config()
+    folders = _pdf_search_folders(cfg)
     deadline = time.time() + max(0, float(wait_sec or 0))
+    newest_hit = None
+    newest_mtime = 0
+
     while True:
-        for p in candidates:
-            if p.exists():
-                return p
+        for folder in folders:
+            for path in _candidate_paths(folder, bill_no):
+                try:
+                    if path.is_file():
+                        mtime = path.stat().st_mtime
+                        if mtime > newest_mtime:
+                            newest_mtime = mtime
+                            newest_hit = path
+                except OSError:
+                    continue
+
+            # newest PDF in folder whose name contains bill no (last 2 min)
+            if folder.is_dir():
+                bill_upper = str(bill_no).upper()
+                for path in folder.rglob("*.pdf"):
+                    try:
+                        if bill_upper not in path.stem.upper():
+                            continue
+                        mtime = path.stat().st_mtime
+                        if wait_sec and time.time() - mtime > max(float(wait_sec), 120):
+                            continue
+                        if mtime > newest_mtime:
+                            newest_mtime = mtime
+                            newest_hit = path
+                    except OSError:
+                        continue
+
+        if newest_hit:
+            logging.info(f"Marg PDF found: {newest_hit}")
+            return newest_hit
+
         if time.time() >= deadline:
             break
         time.sleep(0.5)
+
+    logging.warning(f"Marg PDF not found for bill {bill_no} in {[str(f) for f in folders]}")
     return None
 
+
 def pdf_to_base64(pdf_path):
-    """Convert a PDF file to base64 string for sending via API."""
+    import base64
     with open(pdf_path, "rb") as f:
         return base64.b64encode(f.read()).decode("utf-8")
 
+
 def generate_simple_invoice_pdf(bill_data):
-    """
-    Fallback: generate a simple invoice PDF using fpdf2
-    when Marg's PDF export folder doesn't have the file.
-    bill_data = { bill_no, bill_date, party_name, items: [...], total, gst, net_amount }
-    """
+    """Fallback PDF when Marg export folder has no file for this bill."""
     if not FPDF_AVAILABLE:
         raise ImportError("Run: pip install fpdf2")
 
-    company = CFG["marg"]["company_name"]
+    cfg = load_config()
+    company = cfg["marg"]["company_name"]
+    bill_no = bill_data.get("bill_no", "")
+    party_name = bill_data.get("party_name", "Customer")
+    party_code = bill_data.get("party_code", "")
+    amount = bill_data.get("total", bill_data.get("net_amount", "0"))
+    bill_date = bill_data.get("bill_date", "")
+
     pdf = FPDF()
     pdf.set_auto_page_break(auto=True, margin=15)
     pdf.add_page()
     pdf.set_margins(15, 15, 15)
 
-    # Header
     pdf.set_font("Helvetica", "B", 16)
     pdf.set_fill_color(37, 99, 235)
     pdf.set_text_color(255, 255, 255)
     pdf.cell(0, 12, company, ln=True, fill=True, align="C")
     pdf.set_text_color(0, 0, 0)
-    pdf.ln(2)
-
-    # Bill info
-    pdf.set_font("Helvetica", "B", 10)
-    pdf.cell(95, 7, f"Bill No: {bill_data.get('bill_no', '')}", border=0)
-    pdf.cell(95, 7, f"Date: {bill_data.get('bill_date', '')}", border=0, align="R", ln=True)
-    pdf.set_font("Helvetica", "", 10)
-    pdf.cell(0, 7, f"Party: {bill_data.get('party_name', '')}", ln=True)
     pdf.ln(4)
 
-    # Items table header
-    pdf.set_fill_color(243, 244, 246)
-    pdf.set_font("Helvetica", "B", 9)
-    col_widths = [70, 25, 30, 30, 25]
-    headers    = ["Item Name", "Qty", "Rate", "Amount", "GST%"]
-    for i, h in enumerate(headers):
-        pdf.cell(col_widths[i], 8, h, border=1, fill=True, align="C")
-    pdf.ln()
+    pdf.set_font("Helvetica", "B", 12)
+    pdf.cell(0, 8, "TAX INVOICE", ln=True, align="C")
+    pdf.ln(2)
 
-    # Items
-    pdf.set_font("Helvetica", "", 9)
-    for item in bill_data.get("items", []):
-        pdf.cell(col_widths[0], 7, str(item.get("name", ""))[:35], border=1)
-        pdf.cell(col_widths[1], 7, str(item.get("qty", "")),        border=1, align="C")
-        pdf.cell(col_widths[2], 7, f"{float(item.get('rate',0)):,.2f}", border=1, align="R")
-        pdf.cell(col_widths[3], 7, f"{float(item.get('amount',0)):,.2f}", border=1, align="R")
-        pdf.cell(col_widths[4], 7, str(item.get("gst", "18")),      border=1, align="C")
+    pdf.set_font("Helvetica", "", 10)
+    rows = [
+        ("Bill No", bill_no),
+        ("Date", bill_date),
+        ("Party", party_name),
+        ("Party Code", party_code),
+        ("Net Amount", f"Rs. {amount}"),
+    ]
+    for label, value in rows:
+        pdf.set_font("Helvetica", "B", 10)
+        pdf.cell(40, 7, label + ":", border=0)
+        pdf.set_font("Helvetica", "", 10)
+        pdf.cell(0, 7, str(value), ln=True, border=0)
+
+    items = bill_data.get("items", [])
+    if items:
+        pdf.ln(4)
+        pdf.set_font("Helvetica", "B", 9)
+        col_widths = [70, 25, 30, 30, 25]
+        headers = ["Item Name", "Qty", "Rate", "Amount", "GST%"]
+        for i, h in enumerate(headers):
+            pdf.cell(col_widths[i], 8, h, border=1, align="C")
         pdf.ln()
+        pdf.set_font("Helvetica", "", 9)
+        for item in items:
+            pdf.cell(col_widths[0], 7, str(item.get("name", ""))[:35], border=1)
+            pdf.cell(col_widths[1], 7, str(item.get("qty", "")), border=1, align="C")
+            pdf.cell(col_widths[2], 7, f"{float(item.get('rate', 0)):,.2f}", border=1, align="R")
+            pdf.cell(col_widths[3], 7, f"{float(item.get('amount', 0)):,.2f}", border=1, align="R")
+            pdf.cell(col_widths[4], 7, str(item.get("gst", "18")), border=1, align="C")
+            pdf.ln()
+    else:
+        pdf.ln(6)
+        pdf.set_font("Helvetica", "I", 9)
+        pdf.multi_cell(0, 5, "Note: Marg bill PDF was not found in the export folder. "
+                             "This is a summary invoice generated by WhatsApp automation.")
 
-    # Totals
-    pdf.ln(3)
-    pdf.set_font("Helvetica", "B", 10)
-    pdf.cell(155, 7, "Sub Total:", align="R")
-    pdf.cell(25, 7, f"Rs. {bill_data.get('total','0')}", ln=True, align="R")
-    pdf.cell(155, 7, "GST:", align="R")
-    pdf.cell(25, 7, f"Rs. {bill_data.get('gst_amount','0')}", ln=True, align="R")
-    pdf.set_fill_color(37, 99, 235)
-    pdf.set_text_color(255, 255, 255)
-    pdf.cell(155, 9, "NET AMOUNT:", fill=True, align="R")
-    pdf.cell(25, 9, f"Rs. {bill_data.get('net_amount','0')}", fill=True, ln=True, align="R")
-
-    # Footer
-    pdf.set_text_color(0, 0, 0)
-    pdf.ln(5)
+    pdf.ln(6)
     pdf.set_font("Helvetica", "I", 8)
     pdf.cell(0, 5, "Thank you for your business!", align="C", ln=True)
 
-    output_path = Path(CFG["marg"]["bill_export_folder"]) / f"{bill_data.get('bill_no','BILL')}.pdf"
-    output_path.parent.mkdir(parents=True, exist_ok=True)
+    export_folder = Path(cfg["marg"]["bill_export_folder"])
+    export_folder.mkdir(parents=True, exist_ok=True)
+    safe_name = str(bill_no).replace("/", "-").replace("\\", "-")
+    output_path = export_folder / f"{safe_name}.pdf"
     pdf.output(str(output_path))
+    logging.info(f"Generated fallback PDF: {output_path}")
     return output_path
