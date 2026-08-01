@@ -65,7 +65,6 @@ IF UPPER(ALLTRIM(marg_wa_send))="Y"
 ELSE
   marg_wa_send="N"
 ENDIF
-=strtofile(marg_wa_send,"D:/MARGERP/HOOK_DATA/send_yes.txt")
 marg_whatsapp_line=trim(myv_bill)+"|"+trim(myv_code)+"|"+trim(myv_name)+"|"+trim(myv_amt)+"|"+trim(myv_phone)+"|"+trim(myv_date)+"|"+marg_wa_send
 =strtofile(marg_whatsapp_line,"D:/MARGERP/HOOK_DATA/bill_hook.txt")
 run /n d:/marg-whatsapp-automation/trigger_bill.bat
@@ -98,22 +97,26 @@ IF USED("ORDER")
     ENDIF
   ENDFOR
 ENDIF
-=strtofile(marg_wa_phone,"D:/MARGERP/HOOK_DATA/phone.txt")
 retu .t.
 
-If HOOK_DATA\phone.txt never appears after saving a bill, this hook is not
-installed — which is fine, STEP 1 covers it on its own.
+Nothing is written to disk here: the mobile travels to FOOTER END in the PUBLIC
+variable. If the popup in STEP 1 still shows a mobile without this hook
+installed, you do not need it — STEP 1 covers the lookup on its own.
 
 ================================================================================
-STEP 3 — Turn off Marg's own "Want to Send Message?" prompt
+STEP 3 — Leave Marg's own WhatsApp bill message ON
 ================================================================================
-Masters -> Marg Setups -> Control Room -> SMS/WhatsApp Setup -> Accept
+Masters -> Marg Setups -> Control Room -> SMS/WhatsApp Setup
 
-  SMS through M-Marg / N-Net / X-Not Required   = X
-  Message of Bill on New/Modify/.../x-No        = x   (or Ask = N)
-  SMS of Bill on New/Modify/.../x-No            = x   (or Ask = N)
+Marg renders the real invoice PDF only as part of this flow, so turning it off
+removes the very file we send. Enable the message on bills and set the PDF copy
+to apply to all parties.
 
-Esc twice -> Yes. Only our popup should remain.
+Marg queues the PDF and a CSV into D:/MARGERP/emailserver and never delivers
+anything itself, so the customer is not messaged twice.
+
+Marg runs this flow on bill DELETE as well. Answer No to that prompt — our hook
+does not fire on delete, so nothing is sent either way.
 
 ================================================================================
 CONFIRMED FIELD MAP (this installation)
@@ -140,11 +143,36 @@ CONFIG (config/config.json)
 ================================================================================
   "send_mode": "yes_only"    send only when you answer Y   (default)
   "send_mode": "always"      send on every save - then delete the popup block
-  "pdf_wait_seconds": 10     how long to wait for Marg's PDF
-  "pdf_search_folders": ["D:/MARGERP/EXPORT/BILLS/"]
+  "pdf_wait_seconds": 60     how long to wait for Marg to finish writing
+  "pdf_search_folders"       where to look, Marg's queue folder first
+  "message_queue_folders"    emptied nightly by the scheduler, keeps 7 days
 
-Bill PDF: if Marg has not written EXPORT/BILLS/<bill>.pdf within the wait,
-Python generates a summary invoice PDF and sends that instead.
+================================================================================
+BILL PDF — send Marg's real invoice
+================================================================================
+Saving a bill makes Marg queue its own GST invoice (items, batches, HSN, GST
+breakup, QR) as
+
+  D:/MARGERP/emailserver/invoice(N).pdf
+
+beside a CSV named after the bill, e.g. <company>_<date>_s_vma0453(N).csv. That
+sidecar names the bill outright, so the right PDF is identified without reading
+a page of it and without any keystrokes.
+
+Three traps that shaped the matching logic:
+  - Marg reuses the copy number N instead of counting upwards, so a PDF can be
+    rewritten for another bill while an older CSV still claims that number.
+    Only files written together count as a pair.
+  - The hook fires BEFORE Marg finishes writing, so a PDF is ignored until its
+    %%EOF trailer is on disk. Taking it early fails on a Windows file lock.
+  - Marg's print-screen Export writes a fixed
+    C:/Users/Public/MARG/<company>/AA/invoice.pdf and overwrites it every time,
+    so that name proves nothing. It is accepted only when written after the
+    save AND the bill number is found in its text (needs pypdf).
+
+Each accepted PDF is copied to EXPORT/BILLS/<bill>.pdf before the next one
+overwrites it. Our own generated invoices go to EXPORT/BILLS/fallback/ and are
+marked, so they are never mistaken for Marg's.
 
 ================================================================================
 TEST
@@ -180,7 +208,7 @@ FOR ln_w=1 TO 250
 ENDFOR
 =strtofile(lc_out,"D:/MARGERP/HOOK_DATA/marg_tables.txt")
 
-Then run:  python python\analyze_marg_tables.py
-Remove the block afterwards.
+Open that file and find the alias whose field list carries PHONE1..PHONE4 —
+that is the party master. Remove the block afterwards.
 
 ================================================================================

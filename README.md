@@ -2,7 +2,18 @@
 
 Send invoice PDFs from Marg ERP on bill save, with optional reorder/outstanding reminders.
 
-**Status:** Bill send on save is working. Scheduler reminders are planned.
+**Status:** Bill send on save is working and delivers Marg's own invoice PDF. Scheduler reminders are planned.
+
+## How the invoice PDF is obtained
+
+Marg renders the real GST invoice as part of its own WhatsApp message flow and
+queues it in `D:/MARGERP/emailserver` beside a CSV named after the bill. That
+sidecar identifies which bill the PDF belongs to, so the right invoice is picked
+up automatically with no keystrokes and no e-mail involved. Marg queues but never
+delivers, so the customer is only messaged once, by us.
+
+Leave Marg's WhatsApp bill message enabled — switching it off removes the PDF.
+If no Marg PDF can be matched, a plain summary invoice is generated instead.
 
 ## Quick start
 
@@ -43,8 +54,13 @@ python/           Hook listener, scheduler, PDF helpers
 MARG_HOOK_CODE.txt Marg FOOTER/HEADER hook snippets
 trigger_bill.bat  Called by Marg on bill save
 START_SERVER.bat  Start WhatsApp gateway
-START_SCHEDULER.bat  Daily reminders (WIP)
+START_SCHEDULER.bat  Daily reminders (WIP) + nightly queue cleanup
 ```
+
+The scheduler also clears Marg's message queue nightly, keeping 7 days. It only
+ever matches `invoice*.pdf` and `*.csv`, so Marg's own extensionless data backups
+in that folder are never touched. Run it on demand with
+`python scheduler.py cleanup`.
 
 ## License
 

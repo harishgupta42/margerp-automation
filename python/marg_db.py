@@ -11,7 +11,7 @@ anything else comes from a Marg export.
 Requires: pip install dbfread fpdf2 requests schedule
 """
 
-import json, csv, re, logging
+import json, logging
 from pathlib import Path
 from datetime import datetime, timedelta
 
@@ -52,24 +52,13 @@ def get_party_phone(party_code, party_name=None):
     """
     Fetch a party mobile outside the bill hook (used by the scheduler).
 
-    The bill flow does not come here — the Marg HEADER hook already puts the
-    mobile straight into bill_hook.txt. Marg's own data files (order.aXX) are
-    encrypted, so only these two sources are possible:
-
-      1. phone.txt written by the Marg HEADER END hook (last billed party)
-      2. party_mobile.csv ledger export, matched on party code or name
+    The bill flow does not come here — the Marg hook already puts the mobile
+    straight into bill_hook.txt. Marg's own data files (order.aXX) are
+    encrypted, which leaves the party_mobile.csv ledger export as the only
+    source, matched on party code or name.
     """
     if not party_code and not party_name:
         return None
-
-    try:
-        from phone_utils import read_saved_phone
-        saved = read_saved_phone()
-        if saved:
-            logging.info(f"Party mobile from Marg hook phone.txt ({party_code}): {saved}")
-            return {"phone": saved, "name": ""}
-    except Exception as e:
-        logging.debug(f"Marg hook phone.txt skipped: {e}")
 
     try:
         from party_mobile_export import lookup_party_mobile
@@ -150,32 +139,4 @@ def get_reorder_parties(days=None):
                     "last_order":  info["date"].strftime("%d/%m/%Y"),
                     "days_since":  days_since,
                 })
-    return results
-
-
-# ── CSV fallback (if you export from Marg manually) ───────────
-def read_outstanding_from_csv(csv_path):
-    """
-    Fallback: read from a CSV you exported from Marg
-    (Reports → Outstanding → Export to Excel/CSV).
-    Expected columns: PartyName, Phone, BillNo, BillDate, Amount
-    """
-    results = []
-    try:
-        with open(csv_path, newline="", encoding="utf-8-sig") as f:
-            reader = csv.DictReader(f)
-            for row in reader:
-                amount_str = re.sub(r"[^\d.]", "", str(row.get("Amount", "0")))
-                amount = float(amount_str) if amount_str else 0
-                if amount > 0:
-                    results.append({
-                        "party_name": row.get("PartyName", "").strip(),
-                        "phone":      row.get("Phone", "").strip(),
-                        "bill_no":    row.get("BillNo", "").strip(),
-                        "bill_date":  row.get("BillDate", "").strip(),
-                        "amount":     f"{amount:,.2f}",
-                        "due_days":   0,
-                    })
-    except Exception as e:
-        print(f"[CSV READ ERROR] {e}")
     return results

@@ -1,18 +1,6 @@
 """Phone helpers for Marg hook integration."""
 
 import re
-from pathlib import Path
-
-
-def read_saved_phone(hook_data_dir="D:/MARGERP/HOOK_DATA"):
-    """Read phone.txt written by Marg HEADER END hook."""
-    phone_file = Path(hook_data_dir) / "phone.txt"
-    if not phone_file.exists():
-        return ""
-    phone = phone_file.read_text(encoding="utf-8-sig").strip()
-    if phone and phone.upper() != "X" and len(phone) >= 10:
-        return phone
-    return ""
 
 
 def normalize_phone(phone, default_country="91"):

@@ -64,12 +64,6 @@ def main():
             issues.append("  -> check the FOOTER END hook, or the party has no "
                           "number in PHONE1..PHONE4")
 
-    phone_txt = Path("D:/MARGERP/HOOK_DATA/phone.txt")
-    if phone_txt.exists() and len(phone_txt.read_text(encoding="utf-8-sig").strip()) >= 10:
-        notes.append(f"HEADER hook active, phone.txt = {phone_txt.read_text(encoding='utf-8-sig').strip()}")
-    else:
-        notes.append("HEADER hook not installed (optional - FOOTER handles the lookup)")
-
     export_csv = Path(marg.get("party_mobile_export", "D:/MARGERP/HOOK_DATA/party_mobile.csv"))
     data = _load_export(export_csv) if export_csv.exists() else {"by_code": {}, "by_name": {}}
     if data["by_code"] or data["by_name"]:
