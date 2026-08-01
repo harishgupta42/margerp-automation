@@ -5,8 +5,7 @@ Marg ERP Hook Listener — triggered on every bill save via Self-Programming Hoo
 
 Marg passes bill data via:
   1. Pipe file: bill_no|party_code|party_name|amount|phone|bill_date|send_yes
-  2. send_yes.txt — Y/N from Marg FOOTER hook (Marg "Send message?" choice)
-  3. CLI args: bill_no party_code amount phone [party_name]
+  2. CLI args: bill_no party_code amount phone [party_name]
 
 send_mode in config.json:
   always   — send on every bill save (ignore Yes/No)
@@ -29,7 +28,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from whatsapp_client import send_pdf, send_text, is_server_online, format_message
 from pdf_generator   import get_marg_pdf_path, generate_simple_invoice_pdf
-from phone_utils     import normalize_phone, read_saved_phone
+from phone_utils     import normalize_phone
 
 CONFIG_PATH = Path(__file__).parent.parent / "config" / "config.json"
 
@@ -94,24 +93,20 @@ def _parse_send_yes(val):
     v = str(val or "").strip().upper()
     return v in ("Y", "YES", "1", "S", "TRUE", "T")
 
-def read_send_yes_flag(cfg, pipe_data=None):
-    """True if operator chose to send (Marg prompt Yes or pipe field 7)."""
-    if pipe_data and pipe_data.get("send_yes") is not None:
-        if _parse_send_yes(pipe_data.get("send_yes")):
-            return True
-        if str(pipe_data.get("send_yes", "")).strip().upper() in ("N", "NO", "0", "X", ""):
-            return False
+def read_send_yes_flag(pipe_data=None):
+    """
+    True if the operator answered Yes to the popup in Marg's FOOTER hook.
 
-    path = Path(cfg["marg"].get("send_yes_file", "D:/MARGERP/HOOK_DATA/send_yes.txt"))
-    if path.exists():
-        return _parse_send_yes(path.read_text(encoding="utf-8-sig").strip())
-    return False
+    The answer rides in the last field of the pipe file, so anything that
+    reaches here without one is treated as No rather than guessed at.
+    """
+    return bool(pipe_data) and _parse_send_yes(pipe_data.get("send_yes"))
 
 def should_send_whatsapp(cfg, pipe_data=None):
     mode = str(cfg["marg"].get("send_mode", "yes_only")).strip().lower()
     if mode == "always":
         return True
-    return read_send_yes_flag(cfg, pipe_data)
+    return read_send_yes_flag(pipe_data)
 
 def read_hook_data():
     hook_data = get_hook_data_path()
@@ -150,22 +145,28 @@ def read_hook_data():
         return None
 
     phone = str(data.get("phone", "")).strip()
-    if not phone or len(phone) < 10:
-        saved = read_saved_phone()
-        if saved:
-            data["phone"] = saved
-            logging.info(f"Phone from Marg HEADER hook (phone.txt): {saved}")
-
-    phone = str(data.get("phone", "")).strip()
-    if (not phone or len(phone) < 10) and data.get("party_code"):
+    if (not phone or len(phone) < 10) and (data.get("party_code") or data.get("party_name")):
         try:
             from marg_db import get_party_phone
-            info = get_party_phone(data["party_code"])
+            info = get_party_phone(data.get("party_code"), data.get("party_name"))
             if info and info.get("phone"):
                 data["phone"] = info["phone"]
-                logging.info(f"Phone from Marg mobile export ({data['party_code']}): {info['phone']}")
+                logging.info(
+                    f"Phone from ledger export "
+                    f"({data.get('party_code') or data.get('party_name')}): {info['phone']}"
+                )
         except Exception as e:
-            logging.debug(f"Party mobile export lookup skipped: {e}")
+            logging.warning(f"Party mobile lookup failed for {data.get('party_code')}: {e}")
+
+    phone = str(data.get("phone", "")).strip()
+    if not phone or len(phone) < 10:
+        export_path = Path(load_config()["marg"].get(
+            "party_mobile_export", "D:/MARGERP/HOOK_DATA/party_mobile.csv"))
+        logging.warning(
+            f"No phone for party {data.get('party_code')} / {data.get('party_name')} — "
+            f"party has no number in ledger PHONE1..PHONE4, or export mobiles "
+            f"with code+name to {export_path}"
+        )
 
     return data
 
@@ -185,7 +186,7 @@ def process_new_bill(bill_data):
     party_name = str(bill_data.get("party_name", "") or "Customer")
 
     if not phone or len(phone) < 12:
-        logging.warning(f"No phone in Marg hook — enable mobile on bill + HEADER END invopho hook")
+        logging.warning("No phone in Marg hook — add the party's mobile in the ledger master")
         return False
 
     if not is_server_online():
@@ -194,33 +195,49 @@ def process_new_bill(bill_data):
 
     cfg = load_config()
     pdf_wait = float(cfg["marg"].get("pdf_wait_seconds", 0) or 0)
-    pdf_path = get_marg_pdf_path(bill_no, wait_sec=pdf_wait)
+    # Marg's export keeps one fixed file name, so only a PDF written after the
+    # bill was saved can belong to this bill. Marg writes it a few seconds
+    # after this hook fires, so the slack only covers clock skew — keeping it
+    # short stops a quick re-save from matching the previous version.
+    try:
+        pdf_path = get_marg_pdf_path(bill_no, wait_sec=pdf_wait,
+                                     since_ts=time.time() - 10, amount=amount)
+    except Exception as e:
+        logging.exception(f"Marg PDF lookup failed for {bill_no}: {e}")
+        pdf_path = None
 
-    if not pdf_path:
+    caption  = format_message("bill_message",
+                              party_name=party_name, bill_no=bill_no,
+                              bill_date=bill_date, amount=amount)
+    filename = f"Invoice-{bill_no}.pdf"
+
+    if pdf_path:
+        if send_pdf(phone, pdf_path, filename=filename, caption=caption):
+            return True
+        # Marg can still hold the file open when the hook reaches it, so a
+        # failed send here is worth one attempt with an invoice of our own
+        # rather than leaving the customer with nothing.
+        logging.warning(f"Could not send Marg's PDF for {bill_no} — "
+                        f"falling back to a generated invoice")
+    else:
         logging.info(f"Marg PDF not found for {bill_no}, generating fallback PDF")
-        try:
-            pdf_path = generate_simple_invoice_pdf({
-                "bill_no":    bill_no,
-                "bill_date":  bill_date,
-                "party_name": party_name,
-                "items":      bill_data.get("items", []),
-                "total":      amount,
-                "gst_amount": bill_data.get("gst_amount", "0"),
-                "net_amount": amount,
-            })
-        except Exception as e:
-            logging.error(f"PDF generation failed: {e}")
-            msg = format_message("bill_message",
-                                 party_name=party_name, bill_no=bill_no,
-                                 bill_date=bill_date, amount=amount)
-            return send_text(phone, msg)
 
-    caption = format_message("bill_message",
-                             party_name=party_name, bill_no=bill_no,
-                             bill_date=bill_date, amount=amount)
-    return send_pdf(phone, pdf_path,
-                    filename=f"Invoice-{bill_no}.pdf",
-                    caption=caption)
+    try:
+        pdf_path = generate_simple_invoice_pdf({
+            "bill_no":    bill_no,
+            "bill_date":  bill_date,
+            "party_name": party_name,
+            "party_code": party_code,
+            "items":      bill_data.get("items", []),
+            "total":      amount,
+            "gst_amount": bill_data.get("gst_amount", "0"),
+            "net_amount": amount,
+        })
+    except Exception as e:
+        logging.error(f"PDF generation failed: {e}")
+        return send_text(phone, caption)
+
+    return send_pdf(phone, pdf_path, filename=filename, caption=caption)
 
 if __name__ == "__main__":
     cfg = load_config()

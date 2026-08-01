@@ -1,55 +1,46 @@
 ================================================================================
-MARG ERP -> WhatsApp — Hook setup (working)
+MARG ERP -> WhatsApp : hook setup
 ================================================================================
 
-Paste these in Marg: Development -> Self Programming -> Development Hook
+Flow
+  FOOTER END  reads the party mobile, asks Y/N, runs trigger_bill.bat
+  HEADER END  optional safety net for the mobile
+  Python      picks up bill_hook.txt and sends the PDF on WhatsApp
+
+Paste in Marg: Masters -> Marg Setups -> Advance Features -> Self Programming
+Then: Development Hook for HEADER END / FOOTER END -> Commands
+Save each with Ctrl+W -> Save -> Exit
 
 ================================================================================
-STEP A — Control Room (one time) — auto-fill mobile from ledger on bill
+STEP 1 — FOOTER END   (required — this one does everything)
 ================================================================================
-Masters -> Marg Setups -> Control Room -> Search in All
-Search: Mobile Number -> Accept
-Set "Bill on Ledger Code/Name/DLNo/Area/Station/MR/moBile/..." = B
-Esc twice -> Yes (save)
-
-After this, open a NEW sale bill, enter party — mobile row should fill from ledger.
-
-================================================================================
-STEP B — HEADER END (capture mobile when party selected)
-================================================================================
-Paste in: Development Hook for HEADER END -> Commands
-
-PUBLIC marg_wa_phone
-marg_wa_phone=""
-IF TYPE("invopho")="C"
-  marg_wa_phone=ALLTRIM(invopho)
-ENDIF
-=strtofile(marg_wa_phone,"D:/MARGERP/HOOK_DATA/phone.txt")
-retu .t.
-
-Ctrl+W -> Save -> Exit
-
-================================================================================
-STEP C — FOOTER END (bill data + professional WhatsApp prompt)
-================================================================================
-Paste in: Development Hook for FOOTER END -> Commands
 
 myv_bill=trim(invo)
 myv_code=trim(pcod)
 myv_name=trim(chemi_name)
 myv_amt=ltrim(str(finalbilval))
 myv_date=trim(repdat1)
+
 myv_phone=""
 IF TYPE("marg_wa_phone")="C"
   myv_phone=ALLTRIM(marg_wa_phone)
 ENDIF
-IF LEN(ALLTRIM(myv_phone))<10 AND TYPE("invopho")="C"
-  myv_phone=ALLTRIM(invopho)
+IF LEN(ALLTRIM(myv_phone))<10 AND USED("ORDER")
+  myv_flds="PHONE4,PHONE3,PHONE2,PHONE1"
+  FOR ln_p=1 TO GETWORDCOUNT(myv_flds,",")
+    myv_try=CHRTRAN(ALLTRIM(TRANSFORM(EVALUATE("ORDER."+GETWORDNUM(myv_flds,ln_p,",")))),"+- ()./,","")
+    IF LEN(myv_try)>=10
+      myv_try=RIGHT(myv_try,10)
+      IF LEFT(myv_try,1)$"6789"
+        myv_phone=myv_try
+        EXIT
+      ENDIF
+    ENDIF
+  ENDFOR
 ENDIF
-marg_wa_send="N"
 
-* --- Professional popup (boxed window, easy to see) ---
-DEFINE WINDOW wa_popup FROM 8,8 TO 19,72 TITLE "  WhatsApp — Send Invoice  " DOUBLE SHADOW
+marg_wa_send="N"
+DEFINE WINDOW wa_popup FROM 8,8 TO 19,72 TITLE "  WhatsApp - Send Invoice  " DOUBLE SHADOW
 ACTIVATE WINDOW wa_popup
 @ 1,3 SAY "Bill No   : "+ALLTRIM(myv_bill)
 @ 2,3 SAY "Party     : "+LEFT(ALLTRIM(myv_name),38)
@@ -57,6 +48,8 @@ ACTIVATE WINDOW wa_popup
 @ 4,3 SAY "Date      : "+ALLTRIM(myv_date)
 IF LEN(ALLTRIM(myv_phone))>=10
   @ 5,3 SAY "Mobile    : "+ALLTRIM(myv_phone)
+ELSE
+  @ 5,3 SAY "Mobile    : NOT FOUND - add mobile in ledger master"
 ENDIF
 @ 7,3 SAY REPLICATE("-",54)
 @ 8,3 SAY "Send this bill to customer on WhatsApp?"
@@ -72,72 +65,150 @@ IF UPPER(ALLTRIM(marg_wa_send))="Y"
 ELSE
   marg_wa_send="N"
 ENDIF
-=strtofile(marg_wa_send,"D:/MARGERP/HOOK_DATA/send_yes.txt")
 marg_whatsapp_line=trim(myv_bill)+"|"+trim(myv_code)+"|"+trim(myv_name)+"|"+trim(myv_amt)+"|"+trim(myv_phone)+"|"+trim(myv_date)+"|"+marg_wa_send
 =strtofile(marg_whatsapp_line,"D:/MARGERP/HOOK_DATA/bill_hook.txt")
 run /n d:/marg-whatsapp-automation/trigger_bill.bat
 retu .t.
 
---- Plan B: if DEFINE WINDOW gives syntax error, use MESSAGEBOX instead ---
-Replace the DEFINE WINDOW block (from DEFINE through RELEASE) with:
+Output line: bill|code|name|amount|phone|date|sendYN
 
-lc_msg="Bill No: "+ALLTRIM(myv_bill)+CHR(13)+CHR(10)
-lc_msg=lc_msg+"Party  : "+ALLTRIM(myv_name)+CHR(13)+CHR(10)
-lc_msg=lc_msg+"Amount : Rs "+ALLTRIM(myv_amt)+CHR(13)+CHR(10)
-lc_msg=lc_msg+CHR(13)+CHR(10)+"Send invoice PDF on WhatsApp?"
-ln_choice=MESSAGEBOX(lc_msg,36,"WhatsApp Invoice")
-IF ln_choice=6
-  marg_wa_send="Y"
-ELSE
-  marg_wa_send="N"
+Marg keeps the ORDER table positioned on the party you selected, so its current
+record already IS the right party. The lookup is read-only — no SELECT, no
+LOCATE, no pointer move — so Marg's own save logic is untouched.
+
+================================================================================
+STEP 2 — HEADER END   (optional safety net)
+================================================================================
+Only needed if Marg ever moves the ORDER pointer before FOOTER runs. It grabs
+the mobile earlier and parks it in a PUBLIC variable the FOOTER checks first.
+
+PUBLIC marg_wa_phone
+marg_wa_phone=""
+IF USED("ORDER")
+  myv_flds="PHONE4,PHONE3,PHONE2,PHONE1"
+  FOR ln_p=1 TO GETWORDCOUNT(myv_flds,",")
+    myv_try=CHRTRAN(ALLTRIM(TRANSFORM(EVALUATE("ORDER."+GETWORDNUM(myv_flds,ln_p,",")))),"+- ()./,","")
+    IF LEN(myv_try)>=10
+      myv_try=RIGHT(myv_try,10)
+      IF LEFT(myv_try,1)$"6789"
+        marg_wa_phone=myv_try
+        EXIT
+      ENDIF
+    ENDIF
+  ENDFOR
 ENDIF
+retu .t.
 
-(36 = Yes/No buttons with question icon. Click Yes = send, No = skip.)
-
---- Plan C: if both fail, use simple boxed prompt on main screen ---
-@ 8,5 TO 15,75 DOUBLE
-@ 9,8 SAY "  WHATSAPP — SEND INVOICE"
-@ 10,8 SAY "  Bill: "+ALLTRIM(myv_bill)+"    Amount: Rs "+ALLTRIM(myv_amt)
-@ 11,8 SAY "  Party: "+LEFT(ALLTRIM(myv_name),40)
-@ 12,8 SAY "  Send to customer?  (Y = Yes, N = No)"
-@ 13,8 GET marg_wa_send PICT "!" VALID UPPER(marg_wa_send)$"YN"
-READ
+Nothing is written to disk here: the mobile travels to FOOTER END in the PUBLIC
+variable. If the popup in STEP 1 still shows a mobile without this hook
+installed, you do not need it — STEP 1 covers the lookup on its own.
 
 ================================================================================
-CONFIG (D:\marg-whatsapp-automation\config\config.json)
+STEP 3 — Leave Marg's own WhatsApp bill message ON
 ================================================================================
-  "send_mode": "yes_only"   — send only when you answer Y on hook prompt
-  "send_mode": "always"    — send on every bill save (remove @ SAY GET block)
+Masters -> Marg Setups -> Control Room -> SMS/WhatsApp Setup
 
-To skip Y/N prompt: remove @ SAY GET READ lines in Step C and set send_mode always.
+Marg renders the real invoice PDF only as part of this flow, so turning it off
+removes the very file we send. Enable the message on bills and set the PDF copy
+to apply to all parties.
 
-================================================================================
-VARIABLE MAP (confirmed)
-================================================================================
-Bill no      INVO                 e.g. VMA0297
-Party code   PCOD                 e.g. WAD
-Party name   CHEMI_NAME
-G Total      FINALBILVAL
-Date         REPDAT1
-Mobile       invopho (after Step A) or phone.txt from HEADER hook
+Marg queues the PDF and a CSV into D:/MARGERP/emailserver and never delivers
+anything itself, so the customer is not messaged twice.
 
-DO NOT USE: order.mobile, order.mob, vou_position as bill no, an (empty)
+Marg runs this flow on bill DELETE as well. Answer No to that prompt — our hook
+does not fire on delete, so nothing is sent either way.
 
 ================================================================================
-PHONE FALLBACK — party_mobile.csv export (if invopho still blank)
+CONFIRMED FIELD MAP (this installation)
 ================================================================================
-Reports -> Management Report -> Utilities -> Copy
--> Export My Database Mobile No
-Save as: D:/MARGERP/HOOK_DATA/party_mobile.csv
+Bill no       INVO             e.g. VMA0453
+Party code    PCOD             e.g. WAD     <- bill alias code
+Party name    CHEMI_NAME       party name as printed on the bill
+G Total       FINALBILVAL
+Date          REPDAT1
+Party master  alias ORDER      D:/MARGERP/DATA/ORDER.A20, ~1900 records
+  SCODE       internal code    e.g. C6      <- NOT the same as PCOD
+  PARNAM      party name, space-padded ("NAME     CITY")
+  PHONE4      10-digit mobile               <- PHONE1..3 empty in our data
 
-Python looks up mobile by party code (PCOD). Re-export when party mobiles change.
+Because PCOD (WAD) != SCODE (C6) and PARNAM is padded, LOCATE on either one
+fails. That is why the hooks read ORDER's CURRENT record instead of searching.
+
+Never use: invopho (always blank here), order.mobile / order.mob (no such
+field), MEMOREAD() (missing from Marg's runtime - use FILETOSTR), sndlast_5
+(does not exist at FOOTER), vou_position, an.
+
+================================================================================
+CONFIG (config/config.json)
+================================================================================
+  "send_mode": "yes_only"    send only when you answer Y   (default)
+  "send_mode": "always"      send on every save - then delete the popup block
+  "pdf_wait_seconds": 60     how long to wait for Marg to finish writing
+  "pdf_search_folders"       where to look, Marg's queue folder first
+  "message_queue_folders"    emptied nightly by the scheduler, keeps 7 days
+
+================================================================================
+BILL PDF — send Marg's real invoice
+================================================================================
+Saving a bill makes Marg queue its own GST invoice (items, batches, HSN, GST
+breakup, QR) as
+
+  D:/MARGERP/emailserver/invoice(N).pdf
+
+beside a CSV named after the bill, e.g. <company>_<date>_s_vma0453(N).csv. That
+sidecar names the bill outright, so the right PDF is identified without reading
+a page of it and without any keystrokes.
+
+Three traps that shaped the matching logic:
+  - Marg reuses the copy number N instead of counting upwards, so a PDF can be
+    rewritten for another bill while an older CSV still claims that number.
+    Only files written together count as a pair.
+  - The hook fires BEFORE Marg finishes writing, so a PDF is ignored until its
+    %%EOF trailer is on disk. Taking it early fails on a Windows file lock.
+  - Marg's print-screen Export writes a fixed
+    C:/Users/Public/MARG/<company>/AA/invoice.pdf and overwrites it every time,
+    so that name proves nothing. It is accepted only when written after the
+    save AND the bill number is found in its text (needs pypdf).
+
+Each accepted PDF is copied to EXPORT/BILLS/<bill>.pdf before the next one
+overwrites it. Our own generated invoices go to EXPORT/BILLS/fallback/ and are
+marked, so they are never mistaken for Marg's.
 
 ================================================================================
 TEST
 ================================================================================
-1. Start WhatsApp server: START_SERVER.bat
-2. Save bill -> a popup window appears with bill details
-3. Type Y and Enter to send, or N to skip
-4. bill_hook.txt should end with |Y and logs\hooks.log should show SUCCESS
+1. START_SERVER.bat            (must stay running - WhatsApp gateway)
+2. CHECK_SETUP.bat             (verifies paths and last bill)
+3. Save a bill -> popup shows Mobile -> press Y
+4. logs\hooks.log should end with: PDF SENT -> 91xxxxxxxxxx
+
+Troubleshooting
+  Mobile shows NOT FOUND    -> party has no number in ledger master, or it sits
+                               in a field other than PHONE1..PHONE4
+  "WhatsApp server offline" -> START_SERVER.bat is not running
+  "<NAME>.PRG does not exist" -> that function is missing from Marg's runtime;
+                               FoxPro treats unknown names as program calls
+
+================================================================================
+APPENDIX — re-discover the party table (only if Marg changes)
+================================================================================
+Temporarily add to HEADER END, open a bill, select a party:
+
+lc_out="WORKAREA|ALIAS|RECCOUNT|DBF|FIELDS"+CHR(13)+CHR(10)
+FOR ln_w=1 TO 250
+  lc_al=ALIAS(ln_w)
+  IF EMPTY(lc_al)
+    LOOP
+  ENDIF
+  lc_line=ALLTRIM(STR(ln_w))+"|"+lc_al+"|"+ALLTRIM(STR(RECCOUNT(lc_al)))+"|"+DBF(lc_al)+"|"
+  FOR ln_f=1 TO FCOUNT(lc_al)
+    lc_line=lc_line+FIELD(ln_f,lc_al)+","
+  ENDFOR
+  lc_out=lc_out+lc_line+CHR(13)+CHR(10)
+ENDFOR
+=strtofile(lc_out,"D:/MARGERP/HOOK_DATA/marg_tables.txt")
+
+Open that file and find the alias whose field list carries PHONE1..PHONE4 —
+that is the party master. Remove the block afterwards.
 
 ================================================================================

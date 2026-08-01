@@ -6,10 +6,17 @@
     "outstanding_export_folder": "D:/MARGERP/EXPORT/OUTSTANDING/",
     "hook_data_file": "D:/MARGERP/HOOK_DATA/bill_hook.txt",
     "party_mobile_export": "D:/MARGERP/HOOK_DATA/party_mobile.csv",
-    "send_yes_file": "D:/MARGERP/HOOK_DATA/send_yes.txt",
     "send_mode": "yes_only",
     "hook_delay_seconds": 0,
-    "pdf_wait_seconds": 3
+    "pdf_wait_seconds": 60,
+    "pdf_search_folders": [
+      "D:/MARGERP/emailserver",
+      "D:/MARGERP/EXPORT/BILLS/",
+      "C:/Users/Public/MARG/*/AA"
+    ],
+    "message_queue_folders": [
+      "D:/MARGERP/emailserver"
+    ]
   },
   "whatsapp": {
     "session_path": "./nodejs/wa_session",
@@ -24,10 +31,12 @@
     "outstanding_reminder_time": "09:00",
     "reorder_reminder_time": "10:00",
     "outstanding_due_days": 30,
-    "reorder_check_days": 45
+    "reorder_check_days": 45,
+    "queue_cleanup_time": "23:30",
+    "queue_keep_days": 7
   },
   "messages": {
-    "bill_message": "Dear {party_name},\n\nThank you for your purchase!\n\nBill No: *{bill_no}*\nDate: {bill_date}\nAmount: *₹{amount}*\n\nPlease find your invoice attached.\n\n_{company_name}_",
+    "bill_message": "ਪਿਆਰੇ {party_name} ਜੀ,\n\nਤੁਹਾਡੀ ਖ਼ਰੀਦਦਾਰੀ ਲਈ ਧੰਨਵਾਦ।\n\nਬਿੱਲ ਨੰਬਰ: *{bill_no}*\nਮਿਤੀ: {bill_date}\nਕੁੱਲ ਰਕਮ: *₹{amount}*\n\nਤੁਹਾਡਾ ਬਿੱਲ ਇਸ ਸੁਨੇਹੇ ਨਾਲ ਨੱਥੀ ਹੈ।\n\n────────────────\n\nDear {party_name},\n\nThank you for your business.\n\nBill No: *{bill_no}*\nDate: {bill_date}\nTotal Amount: *₹{amount}*\n\nPlease find your invoice attached.\n\n_{company_name}_",
     "outstanding_message": "Dear {party_name},\n\nThis is a gentle reminder about your outstanding payment.\n\nBill No: {bill_no}\nBill Date: {bill_date}\nAmount Due: *₹{amount}*\nDue Since: {due_days} days\n\nKindly arrange the payment at the earliest.\n\n_{company_name}_",
     "reorder_message": "Dear {party_name},\n\nIt has been *{days_since} days* since your last order.\nTime to restock? We would love to serve you again!\n\n_{company_name}_"
   }
