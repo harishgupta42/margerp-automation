@@ -1,6 +1,7 @@
 # Local secrets and runtime data (never commit)
 config/config.json
 nodejs/wa_session/
+nodejs/wa_session_backup/
 logs/
 hook_data/
 

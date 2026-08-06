@@ -70,21 +70,6 @@ def read_pipe_hook_file(filepath):
                 "phone":      parts[4],
                 "bill_date":  parts[5],
             }
-        if len(parts) >= 5:
-            return {
-                "bill_no":    parts[0],
-                "party_code": parts[1],
-                "party_name": parts[2],
-                "amount":     parts[3],
-                "bill_date":  parts[4],
-            }
-        if len(parts) >= 3:
-            return {
-                "bill_no":    parts[0],
-                "party_code": parts[1],
-                "amount":     parts[2],
-                "bill_date":  datetime.now().strftime("%d/%m/%Y"),
-            }
     except Exception as e:
         logging.error(f"Hook pipe read error: {e}")
     return None

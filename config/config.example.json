@@ -3,7 +3,6 @@
     "db_path": "D:/MARGERP/Data",
     "company_name": "Your Company Name",
     "bill_export_folder": "D:/MARGERP/EXPORT/BILLS/",
-    "outstanding_export_folder": "D:/MARGERP/EXPORT/OUTSTANDING/",
     "hook_data_file": "D:/MARGERP/HOOK_DATA/bill_hook.txt",
     "party_mobile_export": "D:/MARGERP/HOOK_DATA/party_mobile.csv",
     "send_mode": "yes_only",
@@ -17,10 +16,6 @@
     "message_queue_folders": [
       "D:/MARGERP/emailserver"
     ]
-  },
-  "whatsapp": {
-    "session_path": "./nodejs/wa_session",
-    "sender_jid": "91XXXXXXXXXX@s.whatsapp.net"
   },
   "nodejs_server": {
     "host": "127.0.0.1",

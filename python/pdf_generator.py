@@ -143,10 +143,9 @@ def expand_folder(pattern):
 def _pdf_search_folders(cfg):
     marg = cfg.get("marg", {})
     raw = []
-    for key in ("bill_export_folder", "pdf_export_folder"):
-        p = marg.get(key)
-        if p:
-            raw.append(p)
+    p = marg.get("bill_export_folder")
+    if p:
+        raw.append(p)
     raw.extend(p for p in marg.get("pdf_search_folders", []) if p)
 
     folders = []
@@ -421,12 +420,6 @@ def get_marg_pdf_path(bill_no, wait_sec=0, since_ts=None, amount=None):
 
     logging.warning(f"Marg PDF not found for bill {bill_no} in {[str(f) for f in folders]}")
     return None
-
-
-def pdf_to_base64(pdf_path):
-    import base64
-    with open(pdf_path, "rb") as f:
-        return base64.b64encode(f.read()).decode("utf-8")
 
 
 def generate_simple_invoice_pdf(bill_data):

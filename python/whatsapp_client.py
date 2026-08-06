@@ -4,7 +4,7 @@ whatsapp_client.py
 Sends messages and PDFs via the local Node.js Baileys server.
 """
 
-import requests, json, base64, logging
+import json, requests, base64, logging
 from pathlib import Path
 
 from phone_utils import normalize_phone
