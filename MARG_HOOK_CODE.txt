@@ -121,7 +121,7 @@ does not fire on delete, so nothing is sent either way.
 ================================================================================
 CONFIRMED FIELD MAP (this installation)
 ================================================================================
-Bill no       INVO             e.g. VMA0453
+Bill no       INVO             e.g. INV0453
 Party code    PCOD             e.g. WAD     <- bill alias code
 Party name    CHEMI_NAME       party name as printed on the bill
 G Total       FINALBILVAL
@@ -155,7 +155,7 @@ breakup, QR) as
 
   D:/MARGERP/emailserver/invoice(N).pdf
 
-beside a CSV named after the bill, e.g. <company>_<date>_s_vma0453(N).csv. That
+beside a CSV named after the bill, e.g. <company>_<date>_s_inv0453(N).csv. That
 sidecar names the bill outright, so the right PDF is identified without reading
 a page of it and without any keystrokes.
 

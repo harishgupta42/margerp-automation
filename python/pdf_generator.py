@@ -6,7 +6,7 @@ identify.
 
 Its WhatsApp message flow drops the PDF into the message queue folder beside a
 CSV whose file name carries the bill number, numbering the pair alike —
-invoice(5).pdf next to ..._s_vma0453(5).csv. That sidecar names the bill
+invoice(5).pdf next to ..._s_inv0453(5).csv. That sidecar names the bill
 outright, so it is the first thing looked for.
 
 Its print-screen Export instead writes one fixed name
